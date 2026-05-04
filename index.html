@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Drone Show Check-In</title>
+<link href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --bg-soft: #111827;
+    --card: #1a2235;
+    --border: #2a3548;
+    --text: #f1f5f9;
+    --text-dim: #94a3b8;
+    --accent: #22d3ee;
+    --accent-glow: rgba(34, 211, 238, 0.4);
+    --success: #10b981;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: 'Bai Jamjuree', sans-serif;
+    background: var(--bg);
+    background-image:
+      radial-gradient(circle at 20% 0%, rgba(34, 211, 238, 0.08), transparent 50%),
+      radial-gradient(circle at 80% 100%, rgba(99, 102, 241, 0.08), transparent 50%);
+    background-attachment: fixed;
+    color: var(--text);
+    min-height: 100vh;
+    padding: 20px 16px 40px;
+    overflow-x: hidden;
+  }
+
+  .header {
+    text-align: center;
+    margin-bottom: 24px;
+    animation: fadeDown 0.5s ease;
+  }
+
+  .header .badge {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border: 1px solid var(--accent);
+    border-radius: 20px;
+    margin-bottom: 8px;
+  }
+
+  .header h1 {
+    font-size: 22px;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--text), var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .user-card {
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.1), rgba(99, 102, 241, 0.1));
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    animation: fadeUp 0.5s ease 0.1s both;
+  }
+
+  .user-card img {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+  }
+
+  .user-card .name {
+    font-size: 14px;
+    color: var(--text-dim);
+  }
+
+  .user-card .name strong {
+    color: var(--text);
+    font-size: 16px;
+    display: block;
+  }
+
+  .stat-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+    animation: fadeUp 0.5s ease 0.2s both;
+  }
+
+  .stat {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+  }
+
+  .stat .label {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+  }
+
+  .stat .value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .stat .sub { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+  .section-title {
+    font-size: 12px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-bottom: 10px;
+    padding-left: 4px;
+  }
+
+  .job-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; animation: fadeUp 0.5s ease 0.3s both; }
+
+  .job-card {
+    background: var(--card);
+    border: 1.5px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .job-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, var(--accent-glow), transparent);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .job-card.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 4px 20px var(--accent-glow);
+  }
+
+  .job-card.selected::before { opacity: 0.15; }
+
+  .job-card .job-name {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    position: relative;
+  }
+
+  .job-card .job-rate {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    color: var(--success);
+    font-weight: 600;
+    position: relative;
+  }
+
+  .checkin-btn {
+    width: 100%;
+    padding: 18px;
+    border-radius: 14px;
+    border: none;
+    background: linear-gradient(135deg, var(--accent), #6366f1);
+    color: white;
+    font-family: inherit;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 8px 24px var(--accent-glow);
+    position: sticky;
+    bottom: 16px;
+    z-index: 10;
+    animation: fadeUp 0.5s ease 0.4s both;
+  }
+
+  .checkin-btn:active { transform: scale(0.98); }
+  .checkin-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .checkin-btn .spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    background: var(--card);
+    border: 1px dashed var(--border);
+    border-radius: 14px;
+    color: var(--text-dim);
+  }
+
+  .empty-state .icon { font-size: 32px; margin-bottom: 8px; }
+
+  /* MODAL */
+  .modal-bg {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(8px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 20px;
+  }
+  .modal-bg.show { display: flex; animation: fadeIn 0.2s; }
+
+  .modal {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 32px 24px;
+    max-width: 360px;
+    width: 100%;
+    text-align: center;
+    animation: popIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .modal .modal-icon {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    margin: 0 auto 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+  }
+
+  .modal.success .modal-icon {
+    background: rgba(16, 185, 129, 0.15);
+    border: 2px solid var(--success);
+  }
+
+  .modal.error .modal-icon {
+    background: rgba(239, 68, 68, 0.15);
+    border: 2px solid var(--danger);
+  }
+
+  .modal h2 { font-size: 20px; margin-bottom: 8px; }
+  .modal .modal-msg { color: var(--text-dim); font-size: 14px; margin-bottom: 20px; }
+
+  .modal .amount-box {
+    background: var(--bg);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+  .modal .amount-box .label { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+  .modal .amount-box .value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--success);
+  }
+
+  .modal button {
+    width: 100%;
+    padding: 14px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: var(--bg);
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+  }
+
+  /* ANIMATIONS */
+  @keyframes fadeDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes popIn { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* loading screen */
+  .loading-screen {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    gap: 16px;
+  }
+  .loading-screen .pulse {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 0 var(--accent-glow);
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.7); transform: scale(0.9); }
+    70% { box-shadow: 0 0 0 30px rgba(34, 211, 238, 0); transform: scale(1.1); }
+    100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0); transform: scale(0.9); }
+  }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div class="loading-screen" id="loadingScreen">
+  <div class="pulse"></div>
+  <div style="color: var(--text-dim); font-size: 13px;">กำลังเชื่อมต่อ LINE...</div>
+</div>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="badge">DRONE SHOW · ATTENDANCE</div>
+  <h1>เช็คอินหน้างาน</h1>
+</div>
+
+<!-- USER -->
+<div class="user-card" id="userCard" style="display: none;">
+  <img id="userPic" src="" alt="" />
+  <div class="name">
+    สวัสดี
+    <strong id="userName">-</strong>
+  </div>
+</div>
+
+<!-- STATS -->
+<div class="stat-row" id="statRow" style="display: none;">
+  <div class="stat">
+    <div class="label">งานเดือนนี้</div>
+    <div class="value" id="statJobs">0</div>
+    <div class="sub">ครั้ง</div>
+  </div>
+  <div class="stat">
+    <div class="label">รวมรายได้</div>
+    <div class="value" id="statTotal">0</div>
+    <div class="sub">บาท</div>
+  </div>
+</div>
+
+<!-- JOB LIST -->
+<div class="section-title">งานวันนี้</div>
+<div class="job-list" id="jobList">
+  <div class="empty-state">
+    <div class="icon">📋</div>
+    <div>กำลังโหลดรายการงาน...</div>
+  </div>
+</div>
+
+<!-- CHECKIN BUTTON -->
+<button class="checkin-btn" id="checkinBtn" disabled onclick="doCheckIn()">
+  เลือกงานก่อนเช็คอิน
+</button>
+
+<!-- MODAL -->
+<div class="modal-bg" id="modalBg">
+  <div class="modal" id="modal">
+    <div class="modal-icon" id="modalIcon">✅</div>
+    <h2 id="modalTitle">เช็คอินสำเร็จ</h2>
+    <div class="modal-msg" id="modalMsg"></div>
+    <div class="amount-box" id="amountBox" style="display:none;">
+      <div class="label">คุณจะได้รับ</div>
+      <div class="value"><span id="amountValue">0</span> ฿</div>
+    </div>
+    <button onclick="closeModal()">ตกลง</button>
+  </div>
+</div>
+
+<script>
+  // ============ CONFIG ============
+  const LIFF_ID = 'PASTE_YOUR_LIFF_ID';                    // ใส่ LIFF ID ของคุณ
+  const API_URL = 'PASTE_YOUR_APPS_SCRIPT_WEBAPP_URL';     // ใส่ URL ของ Apps Script Web App
+
+  let user = null;
+  let selectedJobId = null;
+
+  // ============ INIT ============
+  async function init() {
+    try {
+      await liff.init({ liffId: LIFF_ID });
+      if (!liff.isLoggedIn()) {
+        liff.login();
+        return;
+      }
+      const profile = await liff.getProfile();
+      user = profile;
+
+      document.getElementById('userName').textContent = profile.displayName;
+      document.getElementById('userPic').src = profile.pictureUrl || '';
+      document.getElementById('userCard').style.display = 'flex';
+
+      await loadInitData();
+      document.getElementById('loadingScreen').style.display = 'none';
+    } catch (err) {
+      console.error(err);
+      document.getElementById('loadingScreen').innerHTML =
+        '<div style="color: var(--danger); padding: 20px; text-align: center;">เกิดข้อผิดพลาด: ' + err.message + '</div>';
+    }
+  }
+
+  async function loadInitData() {
+    const url = `${API_URL}?action=init&userId=${encodeURIComponent(user.userId)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (!data.ok) throw new Error(data.error);
+
+    renderJobs(data.jobsToday || []);
+
+    // โหลดสถิติ
+    const statsUrl = `${API_URL}?action=mychecks&userId=${encodeURIComponent(user.userId)}`;
+    const statsRes = await fetch(statsUrl);
+    const statsData = await statsRes.json();
+    if (statsData.ok) {
+      document.getElementById('statJobs').textContent = statsData.totalThisMonth.jobs;
+      document.getElementById('statTotal').textContent =
+        (statsData.totalThisMonth.amount || 0).toLocaleString();
+      document.getElementById('statRow').style.display = 'grid';
+    }
+  }
+
+  function renderJobs(jobs) {
+    const list = document.getElementById('jobList');
+    if (!jobs.length) {
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="icon">🌙</div>
+          <div>ไม่มีงานในวันนี้</div>
+          <div style="font-size: 12px; margin-top: 4px;">หากมีงาน กรุณาแจ้งผู้ดูแลเพิ่มในระบบ</div>
+        </div>`;
+      return;
+    }
+
+    list.innerHTML = jobs.map(j => `
+      <div class="job-card" data-id="${j.id}" onclick="selectJob('${j.id}')">
+        <div class="job-name">${escapeHtml(j.name)}</div>
+        <div class="job-rate">💰 ${(j.rate || 0).toLocaleString()} บาท / ครั้ง</div>
+      </div>
+    `).join('');
+  }
+
+  function selectJob(id) {
+    selectedJobId = id;
+    document.querySelectorAll('.job-card').forEach(c => {
+      c.classList.toggle('selected', c.dataset.id === id);
+    });
+    const btn = document.getElementById('checkinBtn');
+    btn.disabled = false;
+    btn.textContent = '📍 เช็คอินตอนนี้';
+  }
+
+  async function doCheckIn() {
+    if (!selectedJobId) return;
+    const btn = document.getElementById('checkinBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>กำลังขอตำแหน่ง GPS...';
+
+    // 1. ขอ GPS
+    let coords;
+    try {
+      coords = await getGPS();
+    } catch (err) {
+      showError('ไม่สามารถระบุตำแหน่งได้', err.message + '\n\nกรุณาเปิดอนุญาตการเข้าถึงตำแหน่งใน LINE');
+      resetBtn();
+      return;
+    }
+
+    btn.innerHTML = '<span class="spinner"></span>กำลังบันทึก...';
+
+    // 2. ส่งไป Apps Script
+    try {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        // ใช้ text/plain เพื่อหลีกเลี่ยง CORS preflight (Apps Script รับได้)
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          userId: user.userId,
+          displayName: user.displayName,
+          jobId: selectedJobId,
+          lat: coords.lat,
+          lng: coords.lng,
+        }),
+      });
+      const data = await res.json();
+
+      if (data.ok) {
+        showSuccess(data);
+        // refresh stats
+        loadInitData().catch(() => {});
+      } else {
+        showError('เช็คอินไม่สำเร็จ', data.error || 'ไม่ทราบสาเหตุ');
+        resetBtn();
+      }
+    } catch (err) {
+      showError('เกิดข้อผิดพลาด', err.message);
+      resetBtn();
+    }
+  }
+
+  function getGPS() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        return reject(new Error('Browser ไม่รองรับ GPS'));
+      }
+      navigator.geolocation.getCurrentPosition(
+        pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        err => {
+          const msg = err.code === 1 ? 'คุณปฏิเสธการเข้าถึงตำแหน่ง'
+                    : err.code === 2 ? 'ไม่สามารถระบุตำแหน่งได้'
+                    : err.code === 3 ? 'หมดเวลารอ GPS'
+                    : 'GPS error';
+          reject(new Error(msg));
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    });
+  }
+
+  function showSuccess(data) {
+    const m = document.getElementById('modal');
+    m.classList.remove('error');
+    m.classList.add('success');
+    document.getElementById('modalIcon').textContent = '✅';
+    document.getElementById('modalTitle').textContent = 'เช็คอินสำเร็จ';
+    document.getElementById('modalMsg').innerHTML =
+      `📍 ${escapeHtml(data.jobName)}<br>🕐 ${data.time} · ระยะ ${data.distance} ม.`;
+    document.getElementById('amountValue').textContent = (data.amount || 0).toLocaleString();
+    document.getElementById('amountBox').style.display = 'block';
+    document.getElementById('modalBg').classList.add('show');
+  }
+
+  function showError(title, msg) {
+    const m = document.getElementById('modal');
+    m.classList.remove('success');
+    m.classList.add('error');
+    document.getElementById('modalIcon').textContent = '⚠️';
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalMsg').textContent = msg;
+    document.getElementById('amountBox').style.display = 'none';
+    document.getElementById('modalBg').classList.add('show');
+  }
+
+  function closeModal() {
+    document.getElementById('modalBg').classList.remove('show');
+    resetBtn();
+  }
+
+  function resetBtn() {
+    const btn = document.getElementById('checkinBtn');
+    btn.disabled = !selectedJobId;
+    btn.textContent = selectedJobId ? '📍 เช็คอินตอนนี้' : 'เลือกงานก่อนเช็คอิน';
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  }
+
+  init();
+</script>
+
+</body>
+</html>
