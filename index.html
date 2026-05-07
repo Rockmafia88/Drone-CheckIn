@@ -19,6 +19,10 @@
     --success: #10b981;
     --danger: #ef4444;
     --warning: #f59e0b;
+    --tag-bkk: #8b5cf6;
+    --tag-upc: #f59e0b;
+    --tag-show: #10b981;
+    --tag-travel: #6b7280;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -140,7 +144,7 @@
     background: var(--card);
     border: 1.5px solid var(--border);
     border-radius: 14px;
-    padding: 16px;
+    padding: 14px 16px;
     cursor: pointer;
     transition: all 0.2s;
     position: relative;
@@ -163,20 +167,51 @@
 
   .job-card.selected::before { opacity: 0.15; }
 
+  .job-card .job-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    position: relative;
+  }
+
   .job-card .job-name {
     font-size: 16px;
     font-weight: 600;
-    margin-bottom: 6px;
-    position: relative;
+    margin-bottom: 8px;
+    line-height: 1.3;
   }
 
   .job-card .job-rate {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 14px;
+    font-size: 18px;
     color: var(--success);
-    font-weight: 600;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .job-card .job-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
     position: relative;
   }
+
+  .tag {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+    letter-spacing: 0.02em;
+  }
+
+  .tag-bkk    { background: rgba(139, 92, 246, 0.15); color: var(--tag-bkk); border: 1px solid rgba(139, 92, 246, 0.3); }
+  .tag-upc    { background: rgba(245, 158, 11, 0.15); color: var(--tag-upc); border: 1px solid rgba(245, 158, 11, 0.3); }
+  .tag-show   { background: rgba(16, 185, 129, 0.15); color: var(--tag-show); border: 1px solid rgba(16, 185, 129, 0.3); }
+  .tag-travel { background: rgba(107, 114, 128, 0.15); color: #9ca3af; border: 1px solid rgba(107, 114, 128, 0.3); }
+  .tag-drone  { background: rgba(34, 211, 238, 0.1); color: var(--accent); border: 1px solid rgba(34, 211, 238, 0.3); }
+  .tag-date   { background: rgba(255, 255, 255, 0.05); color: var(--text-dim); }
 
   .checkin-btn {
     width: 100%;
@@ -224,7 +259,6 @@
 
   .empty-state .icon { font-size: 32px; margin-bottom: 8px; }
 
-  /* MODAL */
   .modal-bg {
     position: fixed;
     inset: 0;
@@ -271,7 +305,7 @@
   }
 
   .modal h2 { font-size: 20px; margin-bottom: 8px; }
-  .modal .modal-msg { color: var(--text-dim); font-size: 14px; margin-bottom: 20px; }
+  .modal .modal-msg { color: var(--text-dim); font-size: 14px; margin-bottom: 20px; line-height: 1.5; }
 
   .modal .amount-box {
     background: var(--bg);
@@ -300,14 +334,12 @@
     cursor: pointer;
   }
 
-  /* ANIMATIONS */
   @keyframes fadeDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
   @keyframes popIn { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* loading screen */
   .loading-screen {
     position: fixed;
     inset: 0;
@@ -336,19 +368,16 @@
 </head>
 <body>
 
-<!-- LOADING -->
 <div class="loading-screen" id="loadingScreen">
   <div class="pulse"></div>
   <div style="color: var(--text-dim); font-size: 13px;">กำลังเชื่อมต่อ LINE...</div>
 </div>
 
-<!-- HEADER -->
 <div class="header">
   <div class="badge">DRONE SHOW · ATTENDANCE</div>
   <h1>เช็คอินหน้างาน</h1>
 </div>
 
-<!-- USER -->
 <div class="user-card" id="userCard" style="display: none;">
   <img id="userPic" src="" alt="" />
   <div class="name">
@@ -357,7 +386,6 @@
   </div>
 </div>
 
-<!-- STATS -->
 <div class="stat-row" id="statRow" style="display: none;">
   <div class="stat">
     <div class="label">งานเดือนนี้</div>
@@ -371,8 +399,7 @@
   </div>
 </div>
 
-<!-- JOB LIST -->
-<div class="section-title">งานวันนี้</div>
+<div class="section-title">งาน 7 วันข้างหน้า</div>
 <div class="job-list" id="jobList">
   <div class="empty-state">
     <div class="icon">📋</div>
@@ -380,12 +407,10 @@
   </div>
 </div>
 
-<!-- CHECKIN BUTTON -->
 <button class="checkin-btn" id="checkinBtn" disabled onclick="doCheckIn()">
   เลือกงานก่อนเช็คอิน
 </button>
 
-<!-- MODAL -->
 <div class="modal-bg" id="modalBg">
   <div class="modal" id="modal">
     <div class="modal-icon" id="modalIcon">✅</div>
@@ -402,12 +427,11 @@
 <script>
   // ============ CONFIG ============
   const LIFF_ID = '2009970912-iaF1MOmb';                   // ใส่ LIFF ID ของคุณ
-  const API_URL = 'https://script.google.com/macros/s/AKfycbwC3_IdtncT7Z5AZx1Xd2pLpgVna7RdlxweZW6Mi41rBefBjBpv1CsjoYMM6mvTD7PN/exec';     // ใส่ URL ของ Apps Script Web App
+  const API_URL = 'https://script.google.com/macros/s/AKfycbz2lSZbe8fEULpLtxo4sK4i5QT36pGyQBPrxD630ZSfMlz-oAuX6ecrfsfEgxGzjqSP/exec';     // ใส่ URL ของ Apps Script Web App
 
   let user = null;
   let selectedJobId = null;
 
-  // ============ INIT ============
   async function init() {
     try {
       await liff.init({ liffId: LIFF_ID });
@@ -440,7 +464,6 @@
 
     renderJobs(data.jobsToday || []);
 
-    // โหลดสถิติ
     const statsUrl = `${API_URL}?action=mychecks&userId=${encodeURIComponent(user.userId)}`;
     const statsRes = await fetch(statsUrl);
     const statsData = await statsRes.json();
@@ -458,18 +481,48 @@
       list.innerHTML = `
         <div class="empty-state">
           <div class="icon">🌙</div>
-          <div>ไม่มีงานในวันนี้</div>
+          <div>ไม่มีงานในช่วง 7 วันนี้</div>
           <div style="font-size: 12px; margin-top: 4px;">หากมีงาน กรุณาแจ้งผู้ดูแลเพิ่มในระบบ</div>
         </div>`;
       return;
     }
 
-    list.innerHTML = jobs.map(j => `
+    list.innerHTML = jobs.map(j => {
+      const areaTagClass = j.area === 'BKK' ? 'tag-bkk' : 'tag-upc';
+      const dayTagClass = j.dayType === 'SHOW' ? 'tag-show' : 'tag-travel';
+      const dateLabel = formatDate(j.date);
+
+      return `
       <div class="job-card" data-id="${j.id}" onclick="selectJob('${j.id}')">
-        <div class="job-name">${escapeHtml(j.name)}</div>
-        <div class="job-rate">💰 ${(j.rate || 0).toLocaleString()} บาท / ครั้ง</div>
+        <div class="job-row">
+          <div style="flex:1; min-width: 0;">
+            <div class="job-name">${escapeHtml(j.name)}</div>
+          </div>
+          <div class="job-rate">฿${(j.rate || 0).toLocaleString()}</div>
+        </div>
+        <div class="job-meta">
+          <span class="tag tag-date">📅 ${dateLabel}</span>
+          <span class="tag ${areaTagClass}">${escapeHtml(j.areaLabel)}</span>
+          <span class="tag ${dayTagClass}">${escapeHtml(j.dayTypeLabel)}</span>
+          <span class="tag tag-drone">🚁 ${j.droneCount} ตัว</span>
+        </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
+  }
+
+  function formatDate(dateStr) {
+    try {
+      const [y, m, d] = dateStr.split('-');
+      const date = new Date(y, m - 1, d);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const diff = Math.floor((date - today) / 86400000);
+      if (diff === 0) return 'วันนี้';
+      if (diff === 1) return 'พรุ่งนี้';
+      const days = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+      return `${parseInt(d)}/${parseInt(m)} (${days[date.getDay()]})`;
+    } catch (e) { return dateStr; }
   }
 
   function selectJob(id) {
@@ -488,7 +541,6 @@
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>กำลังขอตำแหน่ง GPS...';
 
-    // 1. ขอ GPS
     let coords;
     try {
       coords = await getGPS();
@@ -500,11 +552,9 @@
 
     btn.innerHTML = '<span class="spinner"></span>กำลังบันทึก...';
 
-    // 2. ส่งไป Apps Script
     try {
       const res = await fetch(API_URL, {
         method: 'POST',
-        // ใช้ text/plain เพื่อหลีกเลี่ยง CORS preflight (Apps Script รับได้)
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           userId: user.userId,
@@ -518,7 +568,6 @@
 
       if (data.ok) {
         showSuccess(data);
-        // refresh stats
         loadInitData().catch(() => {});
       } else {
         showError('เช็คอินไม่สำเร็จ', data.error || 'ไม่ทราบสาเหตุ');
