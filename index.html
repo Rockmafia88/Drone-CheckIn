@@ -167,6 +167,48 @@
 
   .job-card.selected::before { opacity: 0.15; }
 
+  /* ⭐ งานที่ยังไม่ถึงวัน หรือผ่านไปแล้ว */
+  .job-card.disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: grayscale(0.7);
+    background: rgba(26, 34, 53, 0.5);
+  }
+
+  .job-card.disabled:hover { transform: none; }
+  .job-card.disabled .job-rate { color: var(--text-dim) !important; }
+  .job-card.disabled::before { display: none; }
+
+  /* Badge แสดงสถานะวันที่ */
+  .status-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .status-badge.today {
+    background: linear-gradient(90deg, var(--success), #34d399);
+    color: white;
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
+    animation: pulseGreen 2s ease-in-out infinite;
+  }
+
+  .status-badge.upcoming {
+    background: rgba(107, 114, 128, 0.2);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+  }
+
+  @keyframes pulseGreen {
+    0%, 100% { box-shadow: 0 0 12px rgba(16, 185, 129, 0.5); }
+    50% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.8); }
+  }
+
   .job-card .job-row {
     display: flex;
     justify-content: space-between;
@@ -426,8 +468,8 @@
 
 <script>
   // ============ CONFIG ============
-  const LIFF_ID = '2009970912-iaF1MOmb';                   // ใส่ LIFF ID ของคุณ
-  const API_URL = 'https://script.google.com/macros/s/AKfycbz2lSZbe8fEULpLtxo4sK4i5QT36pGyQBPrxD630ZSfMlz-oAuX6ecrfsfEgxGzjqSP/exec';     // ใส่ URL ของ Apps Script Web App
+  const LIFF_ID = '2009970912-iaF1MOmb';
+  const API_URL = 'https://script.google.com/macros/s/AKfycbwSzKWffEZep2CI0Gmiof-yfu3tz1lf10bTiEm5BdnLOXs4CeWZkHf7mnWBLoOtFpxo/exec';
 
   let user = null;
   let selectedJobId = null;
@@ -484,16 +526,34 @@
           <div>ไม่มีงานในช่วง 7 วันนี้</div>
           <div style="font-size: 12px; margin-top: 4px;">หากมีงาน กรุณาแจ้งผู้ดูแลเพิ่มในระบบ</div>
         </div>`;
+      updateBtnState(false);
       return;
     }
+
+    // ⭐ จัดเรียง: งานวันนี้ขึ้นบนสุด, ตามด้วยวันถัดไปเรียงตามวัน
+    jobs.sort((a, b) => {
+      if (a.isToday && !b.isToday) return -1;
+      if (!a.isToday && b.isToday) return 1;
+      return a.date.localeCompare(b.date);
+    });
 
     list.innerHTML = jobs.map(j => {
       const areaTagClass = j.area === 'BKK' ? 'tag-bkk' : 'tag-upc';
       const dayTagClass = j.dayType === 'SHOW' ? 'tag-show' : 'tag-travel';
       const dateLabel = formatDate(j.date);
+      const isToday = j.isToday;
+
+      // ⭐ Badge สถานะ + คลาส disabled
+      const badge = isToday
+        ? '<div class="status-badge today">⚡ พร้อมเช็คอิน</div>'
+        : '<div class="status-badge upcoming">⏳ ยังไม่ถึงวัน</div>';
+
+      const cardClass = isToday ? 'job-card' : 'job-card disabled';
+      const onclickAttr = isToday ? `onclick="selectJob('${j.id}')"` : '';
 
       return `
-      <div class="job-card" data-id="${j.id}" onclick="selectJob('${j.id}')">
+      <div class="${cardClass}" data-id="${j.id}" data-today="${isToday}" ${onclickAttr}>
+        ${badge}
         <div class="job-row">
           <div style="flex:1; min-width: 0;">
             <div class="job-name">${escapeHtml(j.name)}</div>
@@ -509,6 +569,29 @@
       </div>
     `;
     }).join('');
+
+    // ⭐ ถ้ามีงานวันนี้แค่งานเดียว → auto-select
+    const todayJobs = jobs.filter(j => j.isToday);
+    if (todayJobs.length === 1) {
+      selectJob(todayJobs[0].id);
+    } else {
+      updateBtnState(todayJobs.length > 0);
+    }
+  }
+
+  function updateBtnState(hasTodayJobs) {
+    const btn = document.getElementById('checkinBtn');
+    if (!hasTodayJobs) {
+      btn.disabled = true;
+      btn.textContent = '⏳ ยังไม่มีงานวันนี้';
+      btn.style.background = 'var(--border)';
+      btn.style.boxShadow = 'none';
+    } else if (!selectedJobId) {
+      btn.disabled = true;
+      btn.textContent = 'เลือกงานก่อนเช็คอิน';
+      btn.style.background = '';
+      btn.style.boxShadow = '';
+    }
   }
 
   function formatDate(dateStr) {
