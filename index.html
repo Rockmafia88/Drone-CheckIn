@@ -1,784 +1,793 @@
-/**
- * 🚁 Drone Show Check-In System (Backend) v2
- * NEW: Pricing Matrix - คำนวณราคาตาม จำนวนโดรน + พื้นที่ + ประเภทวัน
- * Stack: Google Apps Script + Google Sheet + LINE Messaging API
- */
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Drone Show · Check-In</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 
-// ============ CONFIG ============
-const CONFIG = {
-  SHEET_ID: 'PASTE_YOUR_SHEET_ID_HERE',
-  LINE_CHANNEL_TOKEN: 'PASTE_LINE_TOKEN',
-  OWNER_LINE_ID: 'PASTE_YOUR_LINE_USER_ID',
-  DEFAULT_RADIUS_M: 500,
-};
+:root {
+  --black:   #0b0c0f;
+  --dark:    #13151a;
+  --card:    #1c1f27;
+  --border:  #2a2f3d;
+  --border2: #363c4e;
+  --text:    #eef0f6;
+  --muted:   #6b7280;
+  --dim:     #9ca3af;
+  --green:   #22c55e;
+  --green-bg:rgba(34,197,94,.12);
+  --cyan:    #06b6d4;
+  --cyan-bg: rgba(6,182,212,.1);
+  --amber:   #f59e0b;
+  --amber-bg:rgba(245,158,11,.12);
+  --red:     #ef4444;
+  --red-bg:  rgba(239,68,68,.1);
+  --purple:  #a855f7;
+  --purple-bg:rgba(168,85,247,.1);
+}
 
-const TABS = {
-  EMPLOYEES: 'Employees',
-  JOB_SITES: 'JobSites',
-  CHECKINS:  'CheckIns',
-  PRICING:   'Pricing',  // ⭐ ใหม่
-};
+body {
+  font-family: 'Sarabun', sans-serif;
+  background: var(--black);
+  color: var(--text);
+  min-height: 100vh;
+  padding-bottom: 120px;
+  overflow-x: hidden;
+}
 
-// ============ MAIN ENDPOINTS ============
+/* ── LOADER ── */
+.loader {
+  position: fixed; inset: 0; z-index: 999;
+  background: var(--black);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 20px;
+}
+.loader-ring {
+  width: 48px; height: 48px;
+  border: 3px solid var(--border2);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+.loader-text { font-size: 13px; color: var(--muted); letter-spacing: .05em; }
 
-function doGet(e) {
+/* ── TOP BAR ── */
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(11,12,15,.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 18px;
+  display: flex; align-items: center; gap: 12px;
+}
+.topbar-drone { font-size: 22px; }
+.topbar-title { font-size: 15px; font-weight: 700; letter-spacing: .02em; }
+.topbar-sub { font-size: 11px; color: var(--muted); margin-top: 1px; font-family: 'Space Mono', monospace; }
+.topbar-status {
+  margin-left: auto;
+  font-size: 10px; font-family: 'Space Mono', monospace;
+  color: var(--green); letter-spacing: .08em;
+  display: flex; align-items: center; gap: 5px;
+}
+.dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  animation: blink 2s ease infinite;
+}
+
+/* ── USER STRIP ── */
+.user-strip {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+  animation: slideDown .4s ease both;
+}
+.user-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 2px solid var(--border2);
+  object-fit: cover; flex-shrink: 0;
+}
+.user-avatar-placeholder {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: var(--card); border: 2px solid var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; flex-shrink: 0;
+}
+.user-name { font-size: 15px; font-weight: 600; }
+.user-role { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* ── VIEW-ONLY BANNER ── */
+.viewonly-banner {
+  margin: 12px 16px 0;
+  background: var(--amber-bg);
+  border: 1px solid rgba(245,158,11,.3);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex; gap: 10px; align-items: flex-start;
+  animation: slideDown .4s .1s ease both;
+}
+.viewonly-banner .vi { font-size: 20px; line-height: 1; flex-shrink: 0; margin-top: 1px; }
+.viewonly-banner .vt { font-size: 13px; font-weight: 600; color: var(--amber); margin-bottom: 3px; }
+.viewonly-banner .vd { font-size: 11px; color: var(--dim); line-height: 1.5; margin-bottom: 10px; }
+.copy-id-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: 'Sarabun', sans-serif;
+  font-size: 12px; font-weight: 600;
+  color: var(--cyan);
+  background: var(--cyan-bg);
+  border: 1px solid rgba(6,182,212,.3);
+  border-radius: 6px;
+  padding: 7px 12px;
+  cursor: pointer; transition: all .15s;
+}
+.copy-id-btn:active { transform: scale(.97); }
+
+/* ── SECTION ── */
+.section-head {
+  padding: 20px 18px 10px;
+  display: flex; align-items: baseline; gap: 8px;
+}
+.section-head .sh-label {
+  font-size: 11px; font-weight: 700;
+  color: var(--muted); letter-spacing: .12em; text-transform: uppercase;
+}
+.section-head .sh-count {
+  font-size: 11px; font-family: 'Space Mono', monospace;
+  color: var(--border2);
+}
+
+/* ── JOB CARDS ── */
+.job-list { padding: 0 16px; display: flex; flex-direction: column; gap: 10px; }
+
+.job-card {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  transition: border-color .2s, box-shadow .2s;
+  animation: fadeUp .4s ease both;
+}
+
+.job-card.active-today {
+  cursor: pointer;
+}
+
+.job-card.active-today:active {
+  transform: scale(.99);
+}
+
+.job-card.selected {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 1px var(--cyan), 0 4px 24px rgba(6,182,212,.15);
+}
+
+.job-card.inactive {
+  opacity: .5;
+  filter: grayscale(.5);
+  cursor: default;
+}
+
+/* Status bar ด้านบนการ์ด */
+.card-status-bar {
+  height: 3px;
+  background: var(--border);
+}
+.job-card.active-today .card-status-bar { background: var(--green); }
+.job-card.selected .card-status-bar { background: var(--cyan); }
+.job-card.inactive .card-status-bar { background: var(--border); }
+.job-card.viewonly .card-status-bar { background: var(--amber); }
+
+.card-body { padding: 14px 16px 12px; }
+
+.card-top {
+  display: flex; align-items: flex-start;
+  justify-content: space-between; gap: 10px;
+  margin-bottom: 10px;
+}
+.card-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 5px;
+  margin-bottom: 8px;
+}
+.badge-today    { background: var(--green-bg);  color: var(--green);  border: 1px solid rgba(34,197,94,.25); }
+.badge-upcoming { background: var(--border);    color: var(--muted);  border: 1px solid var(--border2); }
+.badge-viewonly { background: var(--amber-bg);  color: var(--amber);  border: 1px solid rgba(245,158,11,.25); }
+
+.card-name { font-size: 16px; font-weight: 700; line-height: 1.3; flex: 1; min-width: 0; }
+
+.card-rate {
+  font-family: 'Space Mono', monospace;
+  font-size: 20px; font-weight: 700;
+  color: var(--green);
+  white-space: nowrap; flex-shrink: 0;
+}
+.job-card.inactive .card-rate { color: var(--muted); }
+.job-card.viewonly .card-rate { color: var(--muted); }
+
+.card-tags {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.tag {
+  font-size: 11px; font-weight: 600;
+  padding: 3px 8px; border-radius: 5px;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.tag-date    { background: var(--card);   color: var(--dim);    border: 1px solid var(--border2); }
+.tag-bkk     { background: var(--purple-bg); color: var(--purple); border: 1px solid rgba(168,85,247,.25); }
+.tag-upc     { background: var(--amber-bg);  color: var(--amber);  border: 1px solid rgba(245,158,11,.25); }
+.tag-show    { background: var(--green-bg);  color: var(--green);  border: 1px solid rgba(34,197,94,.25); }
+.tag-travel  { background: var(--border);    color: var(--muted);  border: 1px solid var(--border2); }
+.tag-drone   { background: var(--cyan-bg);   color: var(--cyan);   border: 1px solid rgba(6,182,212,.25); }
+
+/* ── EMPTY STATE ── */
+.empty {
+  margin: 0 16px;
+  padding: 48px 24px;
+  background: var(--card);
+  border: 1px dashed var(--border2);
+  border-radius: 14px;
+  text-align: center;
+}
+.empty .ei { font-size: 40px; margin-bottom: 12px; }
+.empty .et { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+.empty .ed { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+/* ── BOTTOM CHECKIN BAR ── */
+.checkin-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: rgba(11,12,15,.95);
+  backdrop-filter: blur(16px);
+  border-top: 1px solid var(--border);
+}
+.checkin-btn {
+  width: 100%; padding: 17px;
+  border-radius: 12px; border: none;
+  font-family: 'Sarabun', sans-serif;
+  font-size: 16px; font-weight: 700;
+  cursor: pointer; transition: all .2s;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.checkin-btn.ready {
+  background: var(--green);
+  color: #000;
+  box-shadow: 0 4px 20px rgba(34,197,94,.35);
+}
+.checkin-btn.ready:active { transform: scale(.98); }
+.checkin-btn.idle {
+  background: var(--card);
+  color: var(--muted);
+  border: 1.5px solid var(--border2);
+  cursor: not-allowed;
+}
+.checkin-btn.locked {
+  background: var(--card);
+  color: var(--muted);
+  border: 1.5px solid var(--border2);
+  cursor: not-allowed;
+}
+.checkin-btn.loading {
+  background: var(--green);
+  color: #000; opacity: .7;
+  cursor: not-allowed;
+}
+.spin-icon {
+  width: 16px; height: 16px;
+  border: 2px solid rgba(0,0,0,.3);
+  border-top-color: #000;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+
+/* ── MODAL ── */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,.75);
+  backdrop-filter: blur(10px);
+  display: none; align-items: flex-end; justify-content: center;
+  padding: 20px;
+}
+.modal-overlay.open { display: flex; animation: fadeIn .2s; }
+
+.modal-sheet {
+  background: var(--dark);
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  width: 100%; max-width: 400px;
+  overflow: hidden;
+  animation: slideUp .3s cubic-bezier(.34,1.56,.64,1);
+}
+
+.modal-top {
+  padding: 20px 20px 16px;
+  display: flex; align-items: center; gap: 14px;
+}
+.modal-icon-wrap {
+  width: 52px; height: 52px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; flex-shrink: 0;
+}
+.modal-icon-wrap.success { background: var(--green-bg); border: 1.5px solid rgba(34,197,94,.3); }
+.modal-icon-wrap.error   { background: var(--red-bg);   border: 1.5px solid rgba(239,68,68,.3); }
+
+.modal-title { font-size: 17px; font-weight: 700; margin-bottom: 3px; }
+.modal-sub   { font-size: 13px; color: var(--dim); line-height: 1.5; }
+
+/* กล่องเงิน */
+.money-box {
+  margin: 0 20px 16px;
+  background: var(--card);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.money-label { font-size: 13px; color: var(--dim); }
+.money-value {
+  font-family: 'Space Mono', monospace;
+  font-size: 28px; font-weight: 700;
+  color: var(--green);
+}
+.money-unit { font-size: 14px; font-weight: 400; color: var(--dim); margin-left: 4px; }
+
+.modal-action {
+  padding: 0 20px 20px;
+}
+.modal-btn {
+  width: 100%; padding: 14px;
+  border-radius: 10px; border: none;
+  font-family: 'Sarabun', sans-serif;
+  font-size: 15px; font-weight: 700;
+  cursor: pointer;
+}
+.modal-btn.success-btn { background: var(--green); color: #000; }
+.modal-btn.error-btn   { background: var(--card); color: var(--text); border: 1px solid var(--border2); }
+
+/* ── ANIMATIONS ── */
+@keyframes spin      { to { transform: rotate(360deg); } }
+@keyframes blink     { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+@keyframes fadeIn    { from { opacity:0; } to { opacity:1; } }
+@keyframes slideDown { from { opacity:0; transform: translateY(-8px); } to { opacity:1; transform: translateY(0); } }
+@keyframes slideUp   { from { opacity:0; transform: translateY(20px) scale(.96); } to { opacity:1; transform: translateY(0) scale(1); } }
+@keyframes fadeUp    { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+
+<!-- LOADER -->
+<div class="loader" id="loader">
+  <div class="loader-ring"></div>
+  <div class="loader-text">CONNECTING TO LINE</div>
+</div>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="topbar-drone">🚁</div>
+  <div>
+    <div class="topbar-title">Drone Show</div>
+    <div class="topbar-sub">FIELD CHECK-IN</div>
+  </div>
+  <div class="topbar-status">
+    <div class="dot"></div>
+    <span id="topStatus">LIVE</span>
+  </div>
+</div>
+
+<!-- USER STRIP -->
+<div class="user-strip" id="userStrip" style="display:none">
+  <div class="user-avatar-placeholder" id="userAvatarWrap">👤</div>
+  <div>
+    <div class="user-name" id="userName">-</div>
+    <div class="user-role" id="userRole">-</div>
+  </div>
+</div>
+
+<!-- VIEW-ONLY BANNER (unauthorized) -->
+<div class="viewonly-banner" id="viewonlyBanner" style="display:none">
+  <div class="vi">👀</div>
+  <div>
+    <div class="vt">โหมดดูอย่างเดียว</div>
+    <div class="vd">คุณยังไม่อยู่ในรายชื่อพนักงาน<br>กดปุ่มด้านล่างเพื่อขอเพิ่มในระบบ</div>
+    <button class="copy-id-btn" id="copyIdBtn">📋 คัดลอก LINE ID</button>
+  </div>
+</div>
+
+<!-- JOB LIST -->
+<div class="section-head">
+  <span class="sh-label">รายการงาน</span>
+  <span class="sh-count" id="jobCount"></span>
+</div>
+<div class="job-list" id="jobList"></div>
+
+<!-- CHECKIN BAR -->
+<div class="checkin-bar">
+  <button class="checkin-btn idle" id="checkinBtn" disabled>
+    เลือกงานก่อนเช็คอิน
+  </button>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-sheet">
+    <div class="modal-top">
+      <div class="modal-icon-wrap" id="modalIconWrap">✅</div>
+      <div>
+        <div class="modal-title" id="modalTitle">เช็คอินสำเร็จ</div>
+        <div class="modal-sub" id="modalSub"></div>
+      </div>
+    </div>
+    <div class="money-box" id="moneyBox" style="display:none">
+      <div class="money-label">💰 ค่าออกงานวันนี้</div>
+      <div>
+        <span class="money-value" id="moneyVal">0</span>
+        <span class="money-unit">บาท</span>
+      </div>
+    </div>
+    <div class="modal-action">
+      <button class="modal-btn" id="modalBtn" onclick="closeModal()">ตกลง</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════
+//  CONFIG — แก้ 2 ค่านี้
+// ════════════════════════════════════
+const LIFF_ID = 'PASTE_YOUR_LIFF_ID';
+const API_URL = 'PASTE_YOUR_APPS_SCRIPT_WEBAPP_URL';
+
+// ════════════════════════════════════
+//  STATE
+// ════════════════════════════════════
+let user = null;
+let authorized = false;
+let selectedJobId = null;
+let isSubmitting = false;
+
+// ════════════════════════════════════
+//  INIT
+// ════════════════════════════════════
+async function init() {
   try {
-    const action = (e.parameter.action || 'init').toLowerCase();
-    const userId = e.parameter.userId || '';
+    await liff.init({ liffId: LIFF_ID });
+    if (!liff.isLoggedIn()) { liff.login(); return; }
 
-    if (action === 'init') {
-      const employee = getEmployee(userId);
-      return jsonResponse({
-        ok: true,
-        employee: employee,
-        authorized: !!employee,  // ⭐ flag บอก frontend
-        jobsToday: getJobsToday(),
-      });
-    }
+    const profile = await liff.getProfile();
+    user = profile;
+    renderUser(profile);
 
-    if (action === 'mychecks') {
-      return jsonResponse({
-        ok: true,
-        history: getMyCheckIns(userId, 10),
-        totalThisMonth: getTotalThisMonth(userId),
-      });
-    }
+    const data = await apiFetch(`?action=init&userId=${enc(profile.userId)}`);
+    authorized = !!data.authorized;
 
-    return jsonResponse({ ok: false, error: 'Unknown action' });
+    if (!authorized) showViewonlyBanner();
+
+    renderJobs(data.jobsToday || []);
+    hide('loader');
   } catch (err) {
-    return jsonResponse({ ok: false, error: err.message });
+    showFatalError(err.message);
   }
 }
 
-function doPost(e) {
-  try {
-    const body = JSON.parse(e.postData.contents);
-    const { userId, displayName, jobId, lat, lng } = body;
-
-    if (!userId || !jobId || lat == null || lng == null) {
-      return jsonResponse({ ok: false, error: 'Missing required fields' });
-    }
-
-    // ⭐ SECURITY: ตรวจสอบว่าเป็นพนักงานในระบบหรือไม่
-    const employee = getEmployee(userId);
-    if (!employee) {
-      // Log ความพยายามเช็คอินจากคนที่ไม่ได้รับอนุญาต
-      logUnauthorizedAttempt(userId, displayName, jobId);
-
-      return jsonResponse({
-        ok: false,
-        error: 'คุณไม่อยู่ในรายชื่อพนักงาน กรุณาติดต่อผู้ดูแลเพื่อเพิ่มชื่อในระบบ',
-        unauthorized: true,
-      });
-    }
-
-    if (alreadyCheckedInToday(userId, jobId)) {
-      return jsonResponse({
-        ok: false,
-        error: 'คุณได้เช็คอินงานนี้ไปแล้ววันนี้',
-      });
-    }
-
-    const job = getJobById(jobId);
-    if (!job) {
-      return jsonResponse({ ok: false, error: 'ไม่พบงานนี้ในระบบ' });
-    }
-
-    // ⭐ ตรวจสอบว่าเป็นวันของงานหรือไม่
-    const dateCheck = checkJobDate(job.date);
-    if (!dateCheck.ok) {
-      return jsonResponse({
-        ok: false,
-        error: dateCheck.error,
-      });
-    }
-
-    const distance = calcDistance(lat, lng, job.lat, job.lng);
-    const radius = job.radius || CONFIG.DEFAULT_RADIUS_M;
-    if (distance > radius) {
-      return jsonResponse({
-        ok: false,
-        error: `คุณอยู่ห่างจากไซต์งาน ${Math.round(distance)} เมตร (ต้องอยู่ใน ${radius} เมตร)`,
-        distance: Math.round(distance),
-      });
-    }
-
-    // ⭐ คำนวณเรทจาก Pricing Matrix
-    const amount = lookupRate(job.droneCount, job.area, job.dayType);
-
-    const timestamp = new Date();
-    // ⭐ ใช้ชื่อจาก Sheet เท่านั้น ไม่ใช้จาก LINE (ป้องกันการปลอมชื่อ)
-    const empName = employee.name;
-
-    appendCheckIn({
-      timestamp,
-      userId,
-      name: empName,
-      jobId,
-      jobName: job.name,
-      lat,
-      lng,
-      distance: Math.round(distance),
-      amount,
-      status: 'OK',
-    });
-
-    notifyOwner({
-      name: empName,
-      jobName: job.name,
-      time: timestamp,
-      amount,
-      distance: Math.round(distance),
-      droneCount: job.droneCount,
-      area: job.area,
-      dayType: job.dayType,
-    });
-
-    return jsonResponse({
-      ok: true,
-      message: 'เช็คอินสำเร็จ',
-      amount,
-      jobName: job.name,
-      distance: Math.round(distance),
-      time: Utilities.formatDate(timestamp, 'Asia/Bangkok', 'HH:mm'),
-    });
-  } catch (err) {
-    return jsonResponse({ ok: false, error: err.message });
+// ════════════════════════════════════
+//  RENDER USER
+// ════════════════════════════════════
+function renderUser(profile) {
+  const wrap = id('userAvatarWrap');
+  if (profile.pictureUrl) {
+    wrap.outerHTML = `<img class="user-avatar" id="userAvatarWrap" src="${esc(profile.pictureUrl)}" alt=""/>`;
   }
+  id('userName').textContent = profile.displayName || '-';
+  id('userRole').textContent = authorized ? 'พนักงาน' : 'ผู้เยี่ยมชม';
+  show('userStrip');
 }
 
-// ============ ⭐ SECURITY ============
-
-/**
- * บันทึกความพยายามเช็คอินจากคนที่ไม่ได้รับอนุญาต
- * + แจ้ง Rock ทาง LINE
- */
-function logUnauthorizedAttempt(userId, displayName, jobId) {
-  try {
-    const spreadsheet = ss();
-    let sheet = spreadsheet.getSheetByName('Unauthorized');
-
-    // สร้าง tab ถ้ายังไม่มี
-    if (!sheet) {
-      sheet = spreadsheet.insertSheet('Unauthorized');
-      sheet.getRange(1, 1, 1, 4).setValues([['Timestamp', 'LineUserID', 'DisplayName', 'AttemptedJobID']]);
-      const header = sheet.getRange(1, 1, 1, 4);
-      header.setBackground('#7F1D1D').setFontColor('#FFFFFF').setFontWeight('bold');
-      sheet.setFrozenRows(1);
-    }
-
-    const timestamp = new Date();
-    sheet.appendRow([timestamp, userId, displayName || '(no name)', jobId]);
-
-    // แจ้ง Rock ทาง LINE
-    notifyOwnerUnauthorized({
-      userId,
-      displayName: displayName || '(no name)',
-      jobId,
-      time: timestamp,
+// ════════════════════════════════════
+//  VIEW-ONLY BANNER
+// ════════════════════════════════════
+function showViewonlyBanner() {
+  show('viewonlyBanner');
+  const btn = id('copyIdBtn');
+  if (btn) {
+    btn.addEventListener('click', function() {
+      const me = this;
+      const orig = me.textContent;
+      copyText(user ? user.userId : '', () => {
+        me.textContent = '✅ คัดลอกแล้ว!';
+        setTimeout(() => { me.textContent = orig; }, 2500);
+      });
     });
-
-    Logger.log(`⚠️ Unauthorized attempt: ${displayName} (${userId})`);
-  } catch (err) {
-    Logger.log('❌ logUnauthorizedAttempt error: ' + err.message);
   }
+  // ปุ่มเช็คอิน → locked
+  const btn2 = id('checkinBtn');
+  btn2.className = 'checkin-btn locked';
+  btn2.disabled = true;
+  btn2.textContent = '🔒 ต้องลงทะเบียนก่อนเช็คอิน';
 }
 
-/**
- * แจ้ง Rock เมื่อมีคนนอกระบบพยายามเช็คอิน
- */
-function notifyOwnerUnauthorized({ userId, displayName, jobId, time }) {
-  if (!CONFIG.OWNER_LINE_ID || !CONFIG.LINE_CHANNEL_TOKEN) return;
+// ════════════════════════════════════
+//  RENDER JOBS
+// ════════════════════════════════════
+function renderJobs(jobs) {
+  const list = id('jobList');
+  const countEl = id('jobCount');
 
-  const timeStr = Utilities.formatDate(time, 'Asia/Bangkok', 'dd/MM/yyyy HH:mm');
-  const flex = {
-    type: 'flex',
-    altText: `⚠️ มีคนนอกระบบพยายามเช็คอิน: ${displayName}`,
-    contents: {
-      type: 'bubble',
-      size: 'kilo',
-      header: {
-        type: 'box',
-        layout: 'vertical',
-        backgroundColor: '#7F1D1D',
-        paddingAll: '16px',
-        contents: [{
-          type: 'text',
-          text: '⚠️ Unauthorized Access',
-          color: '#FCA5A5',
-          size: 'sm',
-          weight: 'bold',
-        }, {
-          type: 'text',
-          text: 'มีคนนอกระบบพยายามเช็คอิน',
-          color: '#FFFFFF',
-          size: 'md',
-          weight: 'bold',
-          margin: 'sm',
-          wrap: true,
-        }],
-      },
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        contents: [
-          { type: 'text', text: '👤 ชื่อ LINE', size: 'xs', color: '#64748B' },
-          { type: 'text', text: displayName, size: 'sm', weight: 'bold', wrap: true },
-          { type: 'separator', margin: 'sm' },
-          { type: 'text', text: '🆔 LINE User ID', size: 'xs', color: '#64748B', margin: 'sm' },
-          { type: 'text', text: userId, size: 'xs', wrap: true },
-          { type: 'separator', margin: 'sm' },
-          { type: 'text', text: '🎯 พยายามเช็คอินงาน', size: 'xs', color: '#64748B', margin: 'sm' },
-          { type: 'text', text: String(jobId), size: 'sm', weight: 'bold' },
-          { type: 'text', text: timeStr, size: 'xs', color: '#64748B', margin: 'sm' },
-          { type: 'separator', margin: 'md' },
-          {
-            type: 'text',
-            text: '💡 หากเป็นพนักงานจริง คัดลอก User ID ด้านบน ไปเพิ่มในแท็บ Employees',
-            size: 'xs',
-            color: '#64748B',
-            wrap: true,
-            margin: 'sm',
-          },
-        ],
-      },
-    },
-  };
+  if (!jobs.length) {
+    list.innerHTML = `
+      <div class="empty">
+        <div class="ei">🌙</div>
+        <div class="et">ไม่มีงานในช่วงนี้</div>
+        <div class="ed">งานจะแสดงเมื่อผู้ดูแล<br>เพิ่มข้อมูลในระบบ</div>
+      </div>`;
+    countEl.textContent = '';
+    return;
+  }
 
-  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
-    method: 'post',
-    headers: {
-      'Authorization': 'Bearer ' + CONFIG.LINE_CHANNEL_TOKEN,
-      'Content-Type': 'application/json',
-    },
-    payload: JSON.stringify({
-      to: CONFIG.OWNER_LINE_ID,
-      messages: [flex],
-    }),
-    muteHttpExceptions: true,
+  // จัดเรียง: วันนี้ขึ้นก่อน
+  jobs.sort((a, b) => {
+    if (a.isToday && !b.isToday) return -1;
+    if (!a.isToday && b.isToday) return 1;
+    return a.date.localeCompare(b.date);
   });
-}
 
-// ============ ⭐ DATE VALIDATION ============
+  const todayCount = jobs.filter(j => j.isToday).length;
+  countEl.textContent = `${jobs.length} งาน · วันนี้ ${todayCount}`;
 
-/**
- * ตรวจสอบว่าวันที่ของงาน = วันนี้หรือไม่ (Timezone: Asia/Bangkok)
- * คืน { ok: true } ถ้าเป็นวันนี้
- * คืน { ok: false, error } ถ้าไม่ใช่วันนี้
- */
-function checkJobDate(jobDate) {
-  const TZ = 'Asia/Bangkok';
-  const today = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
+  list.innerHTML = jobs.map((j, i) => {
+    const canClick = j.isToday && authorized;
+    const isViewonly = !authorized;
 
-  // แปลง jobDate เป็น Date object ก่อนเสมอ
-  let jobDateObj;
-  if (jobDate instanceof Date) {
-    jobDateObj = jobDate;
-  } else if (typeof jobDate === 'string' && jobDate) {
-    // ถ้าเป็น string ที่เป็นรูปแบบ YYYY-MM-DD อยู่แล้ว ใช้ตรงๆ
-    if (/^\d{4}-\d{2}-\d{2}$/.test(jobDate)) {
-      Logger.log(`📅 checkJobDate: today=${today}, jobDate="${jobDate}"`);
-      if (jobDate === today) return { ok: true };
-      if (jobDate < today) {
-        return { ok: false, error: `งานนี้ผ่านมาแล้ว (${jobDate}) ไม่สามารถเช็คอินได้` };
-      }
-      return { ok: false, error: `ยังไม่ถึงวันงาน (${jobDate}) เช็คอินได้เฉพาะวันงานเท่านั้น` };
-    }
-    jobDateObj = new Date(jobDate);
-  } else {
-    return { ok: false, error: 'รูปแบบวันที่ของงานผิด' };
-  }
-
-  // ใช้ Asia/Bangkok timezone เสมอ
-  const jobDateStr = Utilities.formatDate(jobDateObj, TZ, 'yyyy-MM-dd');
-
-  Logger.log(`📅 checkJobDate: today=${today}, jobDateStr=${jobDateStr}, raw=${jobDate}`);
-
-  if (jobDateStr === today) {
-    return { ok: true };
-  }
-
-  if (jobDateStr < today) {
-    return {
-      ok: false,
-      error: `งานนี้ผ่านมาแล้ว (${jobDateStr}) ไม่สามารถเช็คอินได้`,
-    };
-  }
-  return {
-    ok: false,
-    error: `ยังไม่ถึงวันงาน (${jobDateStr}) เช็คอินได้เฉพาะวันงานเท่านั้น`,
-  };
-}
-
-// ============ ⭐ PRICING MATRIX ============
-
-/**
- * คำนวณราคาตาม จำนวนโดรน + พื้นที่ + ประเภทวัน
- * อ่านจาก tab "Pricing"
- */
-function lookupRate(droneCount, area, dayType) {
-  try {
-    const sheet = ss().getSheetByName(TABS.PRICING);
-    if (!sheet) {
-      Logger.log('⚠️ Pricing tab not found, return 0');
-      return 0;
-    }
-
-    const data = sheet.getDataRange().getValues();
-    const colKey = `${area}_${dayType === 'SHOW' ? 'Show' : 'Travel'}`;
-    const headers = data[0].map(h => String(h).trim());
-    const colIdx = headers.indexOf(colKey);
-
-    if (colIdx === -1) {
-      Logger.log(`⚠️ Column "${colKey}" not found in Pricing tab`);
-      return 0;
-    }
-
-    let matchedRate = 0;
-    let matchedMin = -1;
-
-    for (let i = 1; i < data.length; i++) {
-      const minDrone = parseFloat(data[i][0]);
-      const rate = parseFloat(data[i][colIdx]) || 0;
-
-      if (isNaN(minDrone)) continue;
-
-      if (droneCount >= minDrone && minDrone > matchedMin) {
-        matchedMin = minDrone;
-        matchedRate = rate;
-      }
-    }
-
-    Logger.log(`💰 Rate: ${droneCount} drones, ${area}, ${dayType} → ${matchedRate} บาท`);
-    return matchedRate;
-  } catch (err) {
-    Logger.log('❌ lookupRate error: ' + err.message);
-    return 0;
-  }
-}
-
-// ============ SHEET HELPERS ============
-
-function ss() {
-  try {
-    return SpreadsheetApp.openById(CONFIG.SHEET_ID);
-  } catch (e) {
-    return SpreadsheetApp.getActiveSpreadsheet();
-  }
-}
-
-function getEmployee(userId) {
-  if (!userId) return null;
-  const sheet = ss().getSheetByName(TABS.EMPLOYEES);
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === userId) {
-      return {
-        userId: data[i][0],
-        name: data[i][1],
-        role: data[i][2],
-        defaultRate: data[i][3] || 0,
-      };
-    }
-  }
-  return null;
-}
-
-function getJobById(jobId) {
-  const sheet = ss().getSheetByName(TABS.JOB_SITES);
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(jobId)) {
-      // ⭐ Format date เป็น string YYYY-MM-DD เสมอ (timezone-safe)
-      let dateStr = '';
-      const dateRaw = data[i][2];
-      if (dateRaw instanceof Date) {
-        dateStr = Utilities.formatDate(dateRaw, 'Asia/Bangkok', 'yyyy-MM-dd');
-      } else if (typeof dateRaw === 'string') {
-        dateStr = dateRaw.substring(0, 10);
-      }
-
-      return {
-        id: data[i][0],
-        name: data[i][1],
-        date: dateStr,  // เป็น YYYY-MM-DD เสมอ
-        lat: parseFloat(data[i][3]),
-        lng: parseFloat(data[i][4]),
-        radius: parseInt(data[i][5]) || CONFIG.DEFAULT_RADIUS_M,
-        droneCount: parseInt(data[i][6]) || 0,
-        area: String(data[i][7] || 'BKK').toUpperCase().trim(),
-        dayType: String(data[i][8] || 'SHOW').toUpperCase().trim(),
-      };
-    }
-  }
-  return null;
-}
-
-function getJobsToday() {
-  const sheet = ss().getSheetByName(TABS.JOB_SITES);
-  const data = sheet.getDataRange().getValues();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  // แสดงงานในช่วง วันนี้ ถึง อีก 7 วัน
-  const endDate = new Date(today);
-  endDate.setDate(endDate.getDate() + 7);
-
-  const out = [];
-
-  for (let i = 1; i < data.length; i++) {
-    if (!data[i][0]) continue;
-
-    let jobDate;
-    const dateRaw = data[i][2];
-
-    if (dateRaw instanceof Date) {
-      jobDate = new Date(dateRaw);
-    } else if (typeof dateRaw === 'string' && dateRaw) {
-      jobDate = new Date(dateRaw);
-      if (isNaN(jobDate.getTime())) continue;
+    let badgeClass, badgeText;
+    if (isViewonly) {
+      badgeClass = 'badge-viewonly'; badgeText = '👀 ดูอย่างเดียว';
+    } else if (j.isToday) {
+      badgeClass = 'badge-today'; badgeText = '⚡ พร้อมเช็คอิน';
     } else {
-      continue;
+      badgeClass = 'badge-upcoming'; badgeText = '⏳ ' + formatDate(j.date);
     }
 
-    jobDate.setHours(0, 0, 0, 0);
+    const cardClass = isViewonly ? 'job-card viewonly'
+                    : j.isToday ? 'job-card active-today'
+                    : 'job-card inactive';
 
-    if (jobDate >= today && jobDate <= endDate) {
-      const droneCount = parseInt(data[i][6]) || 0;
-      const area = String(data[i][7] || 'BKK').toUpperCase().trim();
-      const dayType = String(data[i][8] || 'SHOW').toUpperCase().trim();
-      const calculatedRate = lookupRate(droneCount, area, dayType);
+    const areaTag = j.area === 'BKK'
+      ? `<span class="tag tag-bkk">🏙️ กทม</span>`
+      : `<span class="tag tag-upc">🌏 ต่างจังหวัด</span>`;
 
-      // ⭐ เช็คว่าเป็นวันนี้หรือไม่
-      const isToday = jobDate.getTime() === today.getTime();
+    const dayTag = j.dayType === 'SHOW'
+      ? `<span class="tag tag-show">✈️ ซ้อม/บินจริง</span>`
+      : `<span class="tag tag-travel">🚗 เดินทาง/Standby</span>`;
 
-      out.push({
-        id: data[i][0],
-        name: data[i][1],
-        date: Utilities.formatDate(jobDate, 'Asia/Bangkok', 'yyyy-MM-dd'),
-        droneCount,
-        area,
-        dayType,
-        rate: calculatedRate,
-        isToday,  // ⭐ flag สำหรับ frontend
-        areaLabel: area === 'BKK' ? 'กทม' : 'ต่างจังหวัด',
-        dayTypeLabel: dayType === 'SHOW' ? 'ซ้อมใหญ่/บินจริง' : 'เดินทาง/Standby',
-      });
-    }
-  }
-  return out;
+    return `
+    <div class="${cardClass}" data-id="${esc(j.id)}"
+         style="animation-delay:${i * 60}ms"
+         ${canClick ? `onclick="selectJob('${esc(j.id)}')"` : ''}>
+      <div class="card-status-bar"></div>
+      <div class="card-body">
+        <div class="card-badge ${badgeClass}">${badgeText}</div>
+        <div class="card-top">
+          <div class="card-name">${esc(j.name)}</div>
+          <div class="card-rate">฿${(j.rate||0).toLocaleString()}</div>
+        </div>
+        <div class="card-tags">
+          <span class="tag tag-date">📅 ${formatDate(j.date)}</span>
+          ${areaTag}
+          ${dayTag}
+          <span class="tag tag-drone">🚁 ${j.droneCount} ตัว</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // auto-select ถ้ามีงานวันนี้แค่ 1 งาน
+  const todayJobs = jobs.filter(j => j.isToday);
+  if (authorized && todayJobs.length === 1) selectJob(todayJobs[0].id);
 }
 
-function alreadyCheckedInToday(userId, jobId) {
-  const sheet = ss().getSheetByName(TABS.CHECKINS);
-  const data = sheet.getDataRange().getValues();
-  const today = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
+// ════════════════════════════════════
+//  SELECT JOB
+// ════════════════════════════════════
+function selectJob(jobId) {
+  if (!authorized) return;
+  selectedJobId = jobId;
 
-  for (let i = 1; i < data.length; i++) {
-    const ts = data[i][0];
-    if (!(ts instanceof Date)) continue;
-    const dateStr = Utilities.formatDate(ts, 'Asia/Bangkok', 'yyyy-MM-dd');
-    if (dateStr === today && data[i][1] === userId && String(data[i][3]) === String(jobId)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function appendCheckIn(row) {
-  const sheet = ss().getSheetByName(TABS.CHECKINS);
-  sheet.appendRow([
-    row.timestamp,
-    row.userId,
-    row.name,
-    row.jobId,
-    row.jobName,
-    row.lat,
-    row.lng,
-    row.distance,
-    row.amount,
-    row.status,
-  ]);
-}
-
-function getMyCheckIns(userId, limit) {
-  const sheet = ss().getSheetByName(TABS.CHECKINS);
-  const data = sheet.getDataRange().getValues();
-  const out = [];
-  for (let i = data.length - 1; i >= 1 && out.length < limit; i--) {
-    if (data[i][1] === userId) {
-      out.push({
-        time: Utilities.formatDate(data[i][0], 'Asia/Bangkok', 'dd/MM HH:mm'),
-        jobName: data[i][4],
-        amount: data[i][8],
-      });
-    }
-  }
-  return out;
-}
-
-function getTotalThisMonth(userId) {
-  const sheet = ss().getSheetByName(TABS.CHECKINS);
-  const data = sheet.getDataRange().getValues();
-  const now = new Date();
-  const ym = Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy-MM');
-  let total = 0;
-  let count = 0;
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][1] !== userId) continue;
-    const ts = data[i][0];
-    if (!(ts instanceof Date)) continue;
-    if (Utilities.formatDate(ts, 'Asia/Bangkok', 'yyyy-MM') === ym) {
-      total += parseFloat(data[i][8]) || 0;
-      count++;
-    }
-  }
-  return { amount: total, jobs: count };
-}
-
-// ============ GPS DISTANCE ============
-
-function calcDistance(lat1, lng1, lat2, lng2) {
-  const R = 6371000;
-  const toRad = d => d * Math.PI / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a = Math.sin(dLat / 2) ** 2
-          + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2))
-          * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
-}
-
-// ============ LINE MESSAGING API ============
-
-function notifyOwner({ name, jobName, time, amount, distance, droneCount, area, dayType }) {
-  if (!CONFIG.OWNER_LINE_ID || !CONFIG.LINE_CHANNEL_TOKEN) {
-    Logger.log('⚠️ ยังไม่ได้ตั้งค่า OWNER_LINE_ID หรือ TOKEN');
-    return;
-  }
-
-  const timeStr = Utilities.formatDate(time, 'Asia/Bangkok', 'dd/MM/yyyy HH:mm');
-  const areaLabel = area === 'BKK' ? 'กทม' : 'ต่างจังหวัด';
-  const dayTypeLabel = dayType === 'SHOW' ? 'ซ้อม/บินจริง' : 'เดินทาง/Standby';
-
-  const flex = {
-    type: 'flex',
-    altText: `✅ ${name} เช็คอินที่ ${jobName}`,
-    contents: {
-      type: 'bubble',
-      size: 'kilo',
-      header: {
-        type: 'box',
-        layout: 'vertical',
-        backgroundColor: '#0F172A',
-        paddingAll: '16px',
-        contents: [{
-          type: 'text',
-          text: '🚁 มีคนเช็คอินใหม่',
-          color: '#22D3EE',
-          size: 'sm',
-          weight: 'bold',
-        }, {
-          type: 'text',
-          text: name,
-          color: '#FFFFFF',
-          size: 'xl',
-          weight: 'bold',
-          margin: 'sm',
-        }],
-      },
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'md',
-        contents: [
-          row('📍 ไซต์', jobName),
-          row('🗺️ พื้นที่', `${areaLabel} · ${dayTypeLabel}`),
-          row('🚁 จำนวนโดรน', `${droneCount} ตัว`),
-          row('🕐 เวลา', timeStr),
-          row('🎯 ระยะ', `${distance} ม.`),
-          { type: 'separator', margin: 'md' },
-          {
-            type: 'box',
-            layout: 'horizontal',
-            contents: [
-              { type: 'text', text: '💰 ค่าออกงาน', size: 'sm', color: '#64748B', flex: 1 },
-              {
-                type: 'text',
-                text: `${amount.toLocaleString()} บาท`,
-                size: 'lg',
-                weight: 'bold',
-                color: '#10B981',
-                align: 'end',
-                flex: 1,
-              },
-            ],
-          },
-        ],
-      },
-    },
-  };
-
-  function row(label, value) {
-    return {
-      type: 'box',
-      layout: 'horizontal',
-      contents: [
-        { type: 'text', text: label, size: 'sm', color: '#64748B', flex: 2 },
-        { type: 'text', text: String(value), size: 'sm', color: '#0F172A', flex: 3, weight: 'bold', wrap: true },
-      ],
-    };
-  }
-
-  const payload = {
-    to: CONFIG.OWNER_LINE_ID,
-    messages: [flex],
-  };
-
-  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
-    method: 'post',
-    headers: {
-      'Authorization': 'Bearer ' + CONFIG.LINE_CHANNEL_TOKEN,
-      'Content-Type': 'application/json',
-    },
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true,
+  document.querySelectorAll('.job-card').forEach(el => {
+    el.classList.toggle('selected', el.dataset.id === jobId);
   });
+
+  const btn = id('checkinBtn');
+  btn.className = 'checkin-btn ready';
+  btn.disabled = false;
+  btn.innerHTML = '📍 เช็คอินตอนนี้';
 }
 
-// ============ UTIL ============
+// ════════════════════════════════════
+//  CHECK-IN FLOW
+// ════════════════════════════════════
+async function doCheckIn() {
+  if (!selectedJobId || isSubmitting || !authorized) return;
+  isSubmitting = true;
 
-function jsonResponse(obj) {
-  return ContentService
-    .createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
-}
+  const btn = id('checkinBtn');
+  btn.className = 'checkin-btn loading';
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spin-icon"></div>ขอตำแหน่ง GPS...';
 
-// ============ SETUP / TEST FUNCTIONS ============
-
-/**
- * ⭐ เรียกครั้งเดียวเพื่อสร้าง tab "Pricing" พร้อมข้อมูลตั้งต้น
- * ขั้นตอน: เลือก function นี้ใน dropdown แล้วกด Run
- */
-function setupPricingTab() {
-  const spreadsheet = ss();
-  let sheet = spreadsheet.getSheetByName(TABS.PRICING);
-
-  if (sheet) {
-    Logger.log('⚠️ Pricing tab already exists. Delete it first if you want to reset.');
-    return;
-  }
-
-  sheet = spreadsheet.insertSheet(TABS.PRICING);
-  const data = [
-    ['MinDrone', 'BKK_Show', 'BKK_Travel', 'UPC_Show', 'UPC_Travel'],
-    [0,   200, 70, 300, 100],
-    [200, 220, 70, 320, 100],
-    [300, 240, 70, 340, 100],
-    [400, 260, 70, 360, 100],
-    [500, 280, 80, 380, 120],
-    [600, 300, 80, 400, 120],
-    [700, 320, 80, 420, 120],
-    [800, 340, 80, 440, 120],
-    [900, 360, 80, 460, 120],
-  ];
-  sheet.getRange(1, 1, data.length, data[0].length).setValues(data);
-
-  const header = sheet.getRange(1, 1, 1, data[0].length);
-  header.setBackground('#0F172A').setFontColor('#FFFFFF').setFontWeight('bold');
-  sheet.setFrozenRows(1);
-  sheet.autoResizeColumns(1, data[0].length);
-
-  Logger.log('✅ Created Pricing tab with default rates');
-  Logger.log('💡 ปรับราคาได้ในแท็บ Pricing โดยตรง');
-}
-
-function testNotify() {
-  notifyOwner({
-    name: 'ทดสอบระบบ',
-    jobName: 'Demo Site',
-    time: new Date(),
-    amount: 280,
-    distance: 25,
-    droneCount: 500,
-    area: 'BKK',
-    dayType: 'SHOW',
-  });
-}
-
-function testRateLookup() {
-  Logger.log('━━━━━━ Pricing Matrix Tests ━━━━━━');
-  const tests = [
-    { drones: 100, area: 'BKK', dayType: 'SHOW', expected: 200 },
-    { drones: 500, area: 'BKK', dayType: 'SHOW', expected: 280 },
-    { drones: 500, area: 'UPC', dayType: 'SHOW', expected: 380 },
-    { drones: 500, area: 'UPC', dayType: 'TRAVEL', expected: 120 },
-    { drones: 1000, area: 'UPC', dayType: 'SHOW', expected: 460 },
-  ];
-  tests.forEach(t => {
-    const result = lookupRate(t.drones, t.area, t.dayType);
-    const status = result === t.expected ? '✅' : '❌';
-    Logger.log(`${status} ${t.drones} drones, ${t.area}, ${t.dayType}: got ${result}, expected ${t.expected}`);
-  });
-}
-
-function testCheckJobDate() {
-  Logger.log('━━━━━━ checkJobDate Tests ━━━━━━');
-  Logger.log('Project TZ: ' + Session.getScriptTimeZone());
-  Logger.log('Today (BKK): ' + Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd'));
-
-  // ลองทุก JobID ที่มีในระบบ
-  const sheet = ss().getSheetByName(TABS.JOB_SITES);
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (!data[i][0]) continue;
-    const jobId = data[i][0];
-    const job = getJobById(jobId);
-    if (!job) continue;
-    const result = checkJobDate(job.date);
-    Logger.log(`Job ${jobId} (${job.name}): date="${job.date}" → ${result.ok ? '✅ OK' : '❌ ' + result.error}`);
-  }
-}
-
-function debugAll() {
-  Logger.log('═══════════════════════════════════');
-  Logger.log('🔍 DEBUG: Drone CheckIn System v2');
-  Logger.log('═══════════════════════════════════');
-
-  // ⭐ TIMEZONE CHECK
-  Logger.log('\n🕐 [0] TIMEZONE:');
-  Logger.log('Project timezone: ' + Session.getScriptTimeZone());
-  Logger.log('Server time (raw): ' + new Date());
-  Logger.log('Server time (Bangkok): ' + Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm:ss z'));
-  Logger.log('Today (Bangkok): ' + Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd'));
-
-  Logger.log('\n📋 [1] CONFIG:');
-  Logger.log('SHEET_ID: ' + (CONFIG.SHEET_ID ? CONFIG.SHEET_ID.substring(0, 20) + '...' : '❌ EMPTY'));
-  Logger.log('LINE_TOKEN: ' + (CONFIG.LINE_CHANNEL_TOKEN ? '✅ Set' : '❌ EMPTY'));
-  Logger.log('OWNER_ID: ' + (CONFIG.OWNER_LINE_ID || '❌ EMPTY'));
-
-  Logger.log('\n📊 [2] SHEET TABS:');
+  let coords;
   try {
-    const sheets = ss().getSheets().map(s => s.getName());
-    Logger.log('Tabs: ' + sheets.join(', '));
-    if (!sheets.includes('Pricing')) {
-      Logger.log('⚠️ ยังไม่มี Pricing tab — รัน setupPricingTab() ก่อน');
+    coords = await getGPS();
+  } catch (err) {
+    isSubmitting = false;
+    resetBtn();
+    showModal('error', '📡 ไม่สามารถระบุตำแหน่งได้', err.message + '\n\nโปรดอนุญาตการเข้าถึงตำแหน่งใน LINE');
+    return;
+  }
+
+  btn.innerHTML = '<div class="spin-icon"></div>กำลังบันทึก...';
+
+  try {
+    const data = await apiPost({
+      userId: user.userId,
+      displayName: user.displayName,
+      jobId: selectedJobId,
+      lat: coords.lat,
+      lng: coords.lng,
+    });
+
+    isSubmitting = false;
+    resetBtn();
+
+    if (data.ok) {
+      showModal('success',
+        '✅ เช็คอินสำเร็จ',
+        `${esc(data.jobName)} · ${data.time} · ระยะ ${data.distance} ม.`,
+        data.amount
+      );
+    } else {
+      showModal('error', '❌ เช็คอินไม่สำเร็จ', data.error || 'เกิดข้อผิดพลาด');
     }
   } catch (err) {
-    Logger.log('❌ ' + err.message);
-    return;
-  }
-
-  Logger.log('\n💰 [3] PRICING TEST:');
-  testRateLookup();
-
-  Logger.log('\n🚀 [4] getJobsToday():');
-  try {
-    const jobs = getJobsToday();
-    Logger.log('Jobs found: ' + jobs.length);
-    Logger.log(JSON.stringify(jobs, null, 2));
-  } catch (err) {
-    Logger.log('❌ ' + err.message);
+    isSubmitting = false;
+    resetBtn();
+    showModal('error', '❌ เกิดข้อผิดพลาด', err.message);
   }
 }
+
+// ════════════════════════════════════
+//  GPS
+// ════════════════════════════════════
+function getGPS() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error('Browser ไม่รองรับ GPS'));
+    navigator.geolocation.getCurrentPosition(
+      p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      e => {
+        const msg = ['', 'ปฏิเสธการเข้าถึงตำแหน่ง', 'ระบุตำแหน่งไม่ได้', 'หมดเวลา GPS'][e.code] || 'GPS Error';
+        reject(new Error(msg));
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  });
+}
+
+// ════════════════════════════════════
+//  MODAL
+// ════════════════════════════════════
+function showModal(type, title, sub, amount) {
+  const wrap = id('modalIconWrap');
+  const moneyBox = id('moneyBox');
+  const btn = id('modalBtn');
+
+  wrap.className = `modal-icon-wrap ${type}`;
+  wrap.textContent = type === 'success' ? '✅' : '⚠️';
+  id('modalTitle').textContent = title;
+  id('modalSub').textContent = sub || '';
+
+  if (type === 'success' && amount != null) {
+    id('moneyVal').textContent = Number(amount).toLocaleString();
+    moneyBox.style.display = 'flex';
+  } else {
+    moneyBox.style.display = 'none';
+  }
+
+  btn.className = `modal-btn ${type === 'success' ? 'success-btn' : 'error-btn'}`;
+  id('modalOverlay').className = 'modal-overlay open';
+}
+
+function closeModal() {
+  id('modalOverlay').className = 'modal-overlay';
+}
+
+// ════════════════════════════════════
+//  HELPERS
+// ════════════════════════════════════
+function resetBtn() {
+  const btn = id('checkinBtn');
+  if (!authorized) return;
+  if (selectedJobId) {
+    btn.className = 'checkin-btn ready';
+    btn.disabled = false;
+    btn.innerHTML = '📍 เช็คอินตอนนี้';
+  } else {
+    btn.className = 'checkin-btn idle';
+    btn.disabled = true;
+    btn.textContent = 'เลือกงานก่อนเช็คอิน';
+  }
+}
+
+function formatDate(dateStr) {
+  try {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    const now = new Date(); now.setHours(0,0,0,0);
+    const diff = Math.floor((dt - now) / 86400000);
+    if (diff === 0) return 'วันนี้';
+    if (diff === 1) return 'พรุ่งนี้';
+    const days = ['อา','จ','อ','พ','พฤ','ศ','ส'];
+    return `${d}/${m} (${days[dt.getDay()]})`;
+  } catch { return dateStr; }
+}
+
+function copyText(text, cb) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(cb).catch(() => { copyFallback(text); cb(); });
+  } else { copyFallback(text); cb(); }
+}
+
+function copyFallback(text) {
+  const el = Object.assign(document.createElement('textarea'), {
+    value: text, style: 'position:fixed;opacity:0'
+  });
+  document.body.appendChild(el);
+  el.select();
+  try { document.execCommand('copy'); } catch {}
+  document.body.removeChild(el);
+}
+
+async function apiFetch(qs) {
+  const res = await fetch(API_URL + qs);
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'API error');
+  return data;
+}
+
+async function apiPost(body) {
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+function showFatalError(msg) {
+  const el = id('loader');
+  el.innerHTML = `<div style="color:#ef4444;padding:24px;text-align:center;font-size:14px;line-height:1.7">
+    <div style="font-size:32px;margin-bottom:12px">⚠️</div>
+    <strong>เกิดข้อผิดพลาด</strong><br>${esc(msg)}
+  </div>`;
+}
+
+const id  = s => document.getElementById(s);
+const show = s => { const el = id(s); if (el) el.style.display = ''; };
+const hide = s => { const el = id(s); if (el) el.style.display = 'none'; };
+const enc  = s => encodeURIComponent(s);
+const esc  = s => String(s).replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+
+// ── bind checkin button
+document.getElementById('checkinBtn').addEventListener('click', doCheckIn);
+
+// ── start
+init();
+</script>
+</body>
+</html>
